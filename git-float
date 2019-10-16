@@ -58,9 +58,11 @@ if [[ "${0##*/}" = 'pre-push' ]]; then
       fi
       # find last for tagged commits
       commit=''
-      while read -r line; do
-        commit="$line"
-      done < <(exec git rev-list --grep "^$tag" "$range")
+      while read -r hash desc; do
+        if [[ "${desc:0:${#tag}}" = "$tag" ]]; then
+          commit="$hash"
+        fi
+      done < <(exec git log --format=oneline --grep "^$tag" "$range")
       if [[ -n "$commit" ]]; then
         commit="$(git rev-parse "${commit}^")"
         {
