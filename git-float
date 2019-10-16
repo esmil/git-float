@@ -34,10 +34,8 @@ if [[ "$GIT_REFLOG_ACTION" = 'rebase' ]]; then
   } < "$file" > "${file}.tmp"
   mv -f "${file}.tmp" "$file"
 
-  # shellcheck disable=SC2153
-  editor="$(git config core.editor || echo "$EDITOR")"
-  [[ -n "$editor" ]] || editor='nano'
-  exec "$editor" "$@"
+  # shellcheck disable=SC2046
+  exec $(git var GIT_EDITOR) "$@"
 fi
 
 if [[ "${0##*/}" = 'pre-push' ]]; then
