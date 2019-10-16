@@ -4,7 +4,7 @@
 ## What is this?
 
 git-float is a script to help manage "floating commits". That is commits that you
-keep rebasing locally and are not meant upstreaming or just not ready yet.
+keep rebasing locally and are not meant for upstreaming or just not ready yet.
 
 Using `git pull -r` git will automatically rebase local commits after pulling the
 latest changes. However when you want to push some commits you first need
@@ -28,7 +28,7 @@ end of the list when doing `git rebase -i`. It will also install a pre-push
 hook that prevents you from pushing floating commits, and if you do it will
 find the last non-floating commit SHA and suggest you use
 ```sh
-git push <remote> <SHA>:<upstream branch>
+git push <remote> <SHA>:<remote branch>
 ```
 instead.
 
