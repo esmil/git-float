@@ -1,0 +1,177 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+readonly tag='float!'
+
+set -e -o pipefail
+
+if [[ "$GIT_REFLOG_ACTION" = 'rebase' ]]; then
+  # we're a sequence editor
+  readonly file="${!#}"
+  {
+    floats=()
+    while read -r line; do
+      if [[ -z "$line" ]]; then
+        break
+      fi
+      act="${line%% *}"
+      sha="${line#* }"
+      dsc="${sha#* }"
+      if [[ ("$act" = 'p' || "$act" = 'pick') && "${dsc:0:${#tag}}" = "$tag" ]]; then
+        floats+=("$line")
+      else
+        printf '%s\n' "$line"
+      fi
+    done
+    for line in "${floats[@]}"; do
+      printf '%s\n' "$line"
+    done
+    unset floats
+    echo
+    while read -r line; do
+      printf '%s\n' "$line"
+    done
+  } < "$file" > "${file}.tmp"
+  mv -f "${file}.tmp" "$file"
+
+  # shellcheck disable=SC2153
+  editor="$(git config core.editor || echo "$EDITOR")"
+  [[ -n "$editor" ]] || editor='nano'
+  exec "$editor" "$@"
+fi
+
+if [[ "${0##*/}" = 'pre-push' ]]; then
+  # we're a pre-push hook
+  readonly remote="$1"
+  #readonly url="$2"
+  readonly z40=0000000000000000000000000000000000000000
+
+  while read -r lref lsha rref rsha; do
+    if [[ "$lsha" = "$z40" ]]; then
+      # handle delete
+      :
+    else
+      if [[ "$rsha" = "$z40" ]]; then
+        # new branch, examine all commits
+        range="$lsha"
+      else
+        # update to existing branch, examine new commits
+        range="${rsha}..${lsha}"
+      fi
+      # find last for tagged commits
+      commit=''
+      while read -r line; do
+        commit="$line"
+      done < <(exec git rev-list --grep "^$tag" "$range")
+      if [[ -n "$commit" ]]; then
+        commit="$(git rev-parse "${commit}^")"
+        {
+          echo "Found $tag commit in $lref, not pushing. Try this instead:"
+          echo
+          echo "git push $remote $commit:${rref#refs/heads/}"
+          echo
+        } >&2
+        exit 1
+      fi
+    fi
+  done
+  exit 0
+fi
+
+usage="Usage: $0 [-i] [-u] [-f] [-h]
+
+-i install git-float hooks
+-u uninstall git-float hooks
+-f force install/uninstall
+-h show this help
+"
+
+action=info
+force=false
+
+while getopts iufh opt; do
+  case "$opt" in
+  i) action=install;;
+  u) action=uninstall;;
+  f) force=true;;
+  h)
+    echo "$usage"
+    exit 0;;
+  *)
+    echo >&2
+    echo "$usage" >&2
+    exit 1;;
+  esac
+done
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo 'not a git repo, please run this script from a git repository' >&2
+  exit 1
+fi
+
+self="$(type -p "$0")"
+readonly self="$(cd "${self%/*}" && pwd -P)/${self##*/}"
+readonly seqedit="$(git config sequence.editor || echo)"
+readonly hookspath="$(git rev-parse --git-path hooks)"
+
+case "$action" in
+install)
+  if [[ "$seqedit" = "$self" ]]; then
+    echo 'rebase sequence filter already installed'
+  elif [[ -n "$seqedit" ]] && ! $force; then
+    echo "rebase sequence editor set to '$seqedit'. skipping"
+  else
+    echo 'setting rebase sequence editor'
+    git config sequence.editor "$self"
+  fi
+  if [[ -h "$hookspath/pre-push" && "$(readlink "$hookspath/pre-push")" = "$self" ]]; then
+    echo 'pre-push hook already installed'
+  elif [[ -e "$hookspath/pre-push" ]] && ! $force; then
+    echo 'pre-push hook exists, but not us. skipping'
+  else
+    echo 'installing pre-push hook'
+    ln -fs "$self" "$hookspath/pre-push"
+  fi
+  ;;
+uninstall)
+  if [[ -z "$seqedit" ]]; then
+    echo 'rebase sequence filter not installed'
+  elif $force || [[ "$seqedit" = "$self" ]]; then
+    echo 'removing rebase sequence filter'
+    git config --local --unset sequence.editor
+  else
+    echo "rebase sequence editor set to '$seqedit'. skipping"
+  fi
+  if [[ ! -h "$hookspath/pre-push" && ! -e "$hookspath/pre-push" ]]; then
+    echo 'pre-push hook not installed'
+  elif $force || [[ -h "$hookspath/pre-push" && "$(readlink "$hookspath/pre-push")" = "$self" ]]; then
+    echo 'removing pre-push hook'
+    rm -f "$hookspath/pre-push"
+  else
+    echo 'pre-push hook exists, but not us. skipping'
+  fi
+  ;;
+*)
+  if [[ "$seqedit" = "$self" ]]; then
+    echo 'rebase sequence filter installed'
+  elif [[ -n "$seqedit" ]]; then
+    echo "rebase sequence editor set to '$seqedit'"
+  else
+    echo 'rebase sequence filter not installed'
+  fi
+  if [[ -h "$hookspath/pre-push" ]]; then
+    link="$(readlink "$hookspath/pre-push")"
+    if [[ "$link" = "$self" ]]; then
+      echo 'pre-push hook installed'
+    else
+      echo "pre-push hook points to '$link'"
+    fi
+  elif [[ -e "$hookspath/pre-push" ]]; then
+    echo 'pre-push hook exists, but not us'
+  else
+    echo 'pre-push hook not installed'
+  fi
+  ;;
+esac
+
+# vim: set ts=2 sw=2 et:
